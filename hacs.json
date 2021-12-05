@@ -1,0 +1,6 @@
+{
+    "name": "Gecoos AC-Controller Tracker",
+    "render_readme": true,
+    "domains": ["device_tracker"],
+    "iot_class": ["Local Polling"]
+}
