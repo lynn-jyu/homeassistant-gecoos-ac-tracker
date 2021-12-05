@@ -1,5 +1,4 @@
 # Home Assistant Gecoos AC-Controller Device Tracker
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/custom-components/hacs)
 
 适用于集客AC控制器(非集客网关)
 
