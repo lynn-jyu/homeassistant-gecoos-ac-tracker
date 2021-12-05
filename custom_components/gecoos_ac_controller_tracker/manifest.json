@@ -1,0 +1,9 @@
+{
+  "domain": "gecoos_ac_controller_tracker",
+  "name": "Gecoos AC Controller Device Tracker",
+  "documentation": "https://github.com/lynn-jyu/homeassistant-gecoos-ac-tracker",
+  "dependencies": [],
+  "codeowners": ["@lynn-jyu"],
+  "requirements": ["requests","js2py"],
+  "version": "1.0.0"
+}

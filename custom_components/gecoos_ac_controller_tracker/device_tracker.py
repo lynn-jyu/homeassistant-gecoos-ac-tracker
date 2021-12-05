@@ -1,5 +1,5 @@
 """
-Support for OpenWRT (luci) routers.
+Support for Gecoos AC Controllers
 
 For more details about this platform, please refer to the documentation at
 https://home-assistant.io/components/device_tracker.luci/
@@ -13,6 +13,7 @@ import voluptuous as vol
 import yaml
 # import execjs
 import js2py
+import hashlib
 
 import homeassistant.helpers.config_validation as cv
 from homeassistant.exceptions import HomeAssistantError
@@ -40,11 +41,11 @@ class InvalidLuciTokenError(HomeAssistantError):
 
 def get_scanner(hass, config):
     """Validate the configuration and return a Luci scanner."""
-    scanner = Jike_Ac_GatewayDeviceScanner(config[DOMAIN])
+    scanner = Gecoos_Ac_ControllerDeviceScanner(config[DOMAIN])
     return scanner #if scanner.success_init else None
 
 
-class Jike_Ac_GatewayDeviceScanner(DeviceScanner):
+class  Gecoos_Ac_ControllerDeviceScanner(DeviceScanner):
     """This class queries a wireless router running OpenWrt firmware."""
 
     def __init__(self, config):   #初始化函数，获取ip地址，用户名，密码
@@ -61,6 +62,7 @@ class Jike_Ac_GatewayDeviceScanner(DeviceScanner):
         print(self.host,self.username,self.password)
 
         self.last_results = {}   #定义一个字典。
+        self.sysauth = ""
         self.refresh_token()   #
 
         self.mac2name = None
@@ -68,7 +70,10 @@ class Jike_Ac_GatewayDeviceScanner(DeviceScanner):
 
     def refresh_token(self):  #刷新获取token后的函数
         """Get a new token."""
-        self.token = _get_token(self.host, self.username, self.password)
+        res = _get_token(self.host, self.username, self.password)
+        self.token = res["cookie"]
+        self.sysauth = res["sysauth"]
+        _LOGGER.debug(res)
         print(self.token)
 
     def scan_devices(self):
@@ -108,7 +113,7 @@ class Jike_Ac_GatewayDeviceScanner(DeviceScanner):
             else:return False
         else:
             return False
-        
+
 
     def _update_info(self):
         """Ensure the information from the Luci router is up to date.
@@ -121,35 +126,32 @@ class Jike_Ac_GatewayDeviceScanner(DeviceScanner):
 
         _LOGGER.info("集客网关AC 开始获取无线客户端数据")
 
+        _LOGGER.debug("Now sysauth is :" + self.sysauth)
 
-        url='http://{}/api/apmgr'.format(self.host)
+
+        url='http://{}/api/ac/stasearch?numperpage=1000&pagenum=1&reverse=&sortkey=&groupid=all&searchkey=&withradio='.format(self.host)
         header = {
-            'Accept': 'application/json, text/plain, */*',
+            'Accept': 'application/json',
             'Accept-Encoding': 'gzip, deflate',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
             'Connection': 'keep-alive',
-            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4195.1 Safari/537.36'
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36 Edg/92.0.902.84',
+            'sysauth': self.sysauth
             }
+        
+        #cookie = {"sysauth": self.sysauth}
+
         if self._include:
             search_key=str('|'.join(self._include))
         else:
             search_key=""
-        data = {
-            "action": "stasearch",
-            "pagenum": 1,
-            "numperpage": 1000,
-            "searchkey": search_key,
-            "sortkey": "tx_rate",
-            "reverse": "yes"
-            }
 
         try:
-            r_json = self.token.post(url, data=data, headers=header).json()
+            r_json = self.token.get(url, headers=header).json()
             _LOGGER.debug('apmgr_ret_json'+str(r_json))
             if "search" not in r_json["msg"]:
+                _LOGGER.debug('sta search failed!!!!!!')
                 self.refresh_token()
-                _LOGGER.error("_update_info，cooking过期，需要重新登陆")
                 return 
             else:
                 self.result=findallinfo(r_json)
@@ -168,33 +170,34 @@ class Jike_Ac_GatewayDeviceScanner(DeviceScanner):
         else:
             return 
 
-
 def _get_token(host, username, password):   #登陆web管理页面
     """Get authentication token for the given host+username+password."""
-    url = 'http://{}/api/login'.format(host)
-    return _req_json_rpc(url, 'login', username, password)
+    return _req_json_rpc(host, 'sysauth', username, password)
 
-def _req_json_rpc(url, method, *args, **kwargs):   #处理登陆过程的函数
+def _req_json_rpc(host, method, *args, **kwargs):   #处理登陆过程的函数
     """Perform one JSON RPC operation."""
+    url = 'http://{}/api/{}'
     s = requests.Session()
     header = {
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Encoding': 'gzip, deflate',
+        'Accept': '*/*',
+        'Accept-Encoding': 'gzip, deflate, br',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         'Connection': 'keep-alive',
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4195.1 Safari/537.36'
+        'Content-Type': 'application/json, charset=UTF-8',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36 Edg/92.0.902.84'
         }
-    ret_msg_json = s.get(url, headers=header).json()
-    _LOGGER.debug('login_token:'+ret_msg_json["msg"])
-    encrypt_password = _encryptpasswd(args[1], ret_msg_json["msg"])
+    ret_msg_json = s.get(url.format(host, "getrandom"), headers=header).json()
+    _LOGGER.debug('get random:'+ret_msg_json["random"])
+    _LOGGER.debug('get random:'+json.dumps(ret_msg_json))
+    #encrypt_password = _encryptpasswd(args[1], ret_msg_json["random"])
+    encrypt_password = _encryptpwd(args[1], ret_msg_json["random"])
+    _LOGGER.debug("Origin Pwd : " + args[1])
     data = {
-        "loginid": args[0],
-        "passwd": encrypt_password
+        "password": encrypt_password
         }
     _LOGGER.debug(data)
     try:
-        res = s.post(url, data=data, headers=header)
+        res = s.post(url.format(host, method), data=json.dumps(data), headers=header)
     except requests.exceptions.Timeout:
         _LOGGER.exception("Connection to the router timed out")
         return
@@ -205,11 +208,16 @@ def _req_json_rpc(url, method, *args, **kwargs):   #处理登陆过程的函数
         if '\u6210\u529f' not in res_json["msg"]:  # 登陆成功!
             _LOGGER.exception("Failed to authenticate, check your username and password")
             return 
-        else:return s
+        else:
+            _LOGGER.debug('Ac controller Login success!')
+            return {
+                "cookie": s,
+                "sysauth": str(res_json["token"])
+            }
     elif res.status_code == 401:  #如果返回状态码是401,提是登陆失败。
         # Authentication error
         _LOGGER.exception(
-            "Failed to authenticate, check your username and password")
+            "Failed to authenticate, check your username and password"+"===")
         return
     elif res.status_code == 403:  #服务器错误
         _LOGGER.exception("Luci responded with a 403 Invalid token")
@@ -330,6 +338,15 @@ def findallinfo(ret_json):
     rest={}
     for i in ret_json['stalist']:
         # print('\n',i)
-        mac_f = ':'.join(format(s, '02x') for s in bytes.fromhex(i['mac'].upper()))
-        rest[mac_f]={"hostname": i["hostname"], "ip": i["ip"], "ap": i["name"], "ssid": i["ssid"], "rss": i["signal"]}
+        #mac_f = ':'.join(format(s, '02x') for s in bytes.fromhex(i['mac'].upper()))
+        rest[i['mac']]={"hostname": i["hostname"], "ip": i["ip"], "ap": i["name"], "ssid": i["ssid"], "rss": i["signal"]}
     return rest
+
+def _encryptpwd(password, salt):
+    hash = hashlib.md5()
+    finalPwd = salt + password
+    hash.update(finalPwd.encode("utf-8"))
+    encrypt_passwd = hash.hexdigest()
+    _LOGGER.debug(encrypt_passwd)
+    _LOGGER.debug(type(encrypt_passwd))
+    return str(encrypt_passwd)
